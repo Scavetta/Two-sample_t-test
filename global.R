@@ -1,6 +1,10 @@
 # Two-sample t-test, v2016, r1 - global
 
+library(broom)
+library(data.table)
 library(ggplot2)
+library(grid)
+library(gridExtra)
 library(reshape2)
 library(shiny)
 library(shinydashboard)

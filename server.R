@@ -77,6 +77,103 @@ output$main_plot <- renderPlot({
   
 }) # end of render plot "main_plot"
 
+
+
+# Create test results plot:
+output$testResults_plot <- renderPlot({
+  # req(input$onestt)
+  x <- seq(-5, 5, length=6000)
+  df.raw <- df()
+  
+  setCI <- input$setCI
+  
+resTable <- rbind(tidy(t.test(value ~ variable, data = df.raw, conf.level = setCI))[-1],  # Welch's
+                  tidy(t.test(value ~ variable, data = df.raw, conf.level = setCI, var.equal = TRUE)))
+resTable <- cbind(Metric = c("Group 1 mean",
+                             "Group 2 mean", 
+                             "Test statistic", 
+                             "p-value", 
+                             "Degrees of Freedom", 
+                             "Lower 95% CI", 
+                             "Upper 95% CI"), 
+                  as.data.frame.matrix(t(resTable)))
+names(resTable)[c(2,3)] <- c("Welch's", "Regular")
+
+
+
+
+
+resTable <- melt(resTable, measure = c("Welch's", "Regular"))
+levels(resTable$variable) <- c("N", "Y")
+
+resTable.red <- resTable[-grep("(CI)|(mean)",resTable$Metric),]
+
+
+plot3Metrics <- ggplot(resTable.red, aes(y = Metric, x = value, col = variable)) +
+  geom_point(size = 6, alpha = 0.6) +
+  geom_text(aes(label = variable), col = "white") +
+  # geom_text(aes(label = variable)) +
+  facet_wrap(~Metric, scales = "free", ncol = 1) +
+  # labs(x = "Value") +
+  scale_colour_manual("Assuming equal variance?",
+                      values = c(MidRed, MidBlue),
+                      c("No (Welchs Variant)", "Yes")) +
+  theme( panel.background = element_rect(colour = "grey90"),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         axis.title = element_blank(),
+         axis.ticks.x = element_line(colour = "black"),
+         axis.ticks.y = element_blank(),
+         axis.line = element_line(colour = "black"),
+         axis.line.y = element_blank(),
+         axis.text.x = element_text(colour = "black"),
+         axis.text.y = element_blank(),
+         legend.position = "top",
+         legend.key = element_blank(),
+         legend.background = element_blank(),
+         panel.margin.y = unit(50, "points"))
+
+# plot CIs
+resTable.CI <- resTable[grep("CI",resTable$Metric),]
+resTable.CI$Metric <- factor(resTable.CI$Metric) # Redefine levels
+levels(resTable.CI$Metric) <- c("lower", "upper")
+resTable.CI <- dcast(resTable.CI, variable ~ Metric)
+
+# Make a dummy label for facets:
+resTable.CI$Metric <- "Confidence Interval"
+base_size <- 11
+half_line <- base_size/2
+plotCI <- ggplot(resTable.CI, aes(y = Metric, x = lower, xend = upper, col = variable)) +
+  geom_segment(y = 1, yend = 1, size = 6, alpha = 0.6) +
+  # geom_point(size = 6, alpha = 0.6) +
+  # geom_text(aes(label = variable), col = "white") +
+  # geom_text(aes(label = variable)) +
+  ylim(c(0.5, 1.5)) +
+  # scale_fill_manual("Assuming equal variance?", 
+  #                     values = c(MidRed, MidBlue)) +
+  facet_wrap(~Metric, scales = "free", ncol = 1) +
+  # labs(x = "Value") +
+  theme( panel.background = element_rect(colour = "grey90"),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         axis.title = element_blank(),
+         axis.ticks.x = element_line(colour = "black"),
+         axis.ticks.y = element_blank(),
+         axis.line = element_line(colour = "black"),
+         axis.line.y = element_blank(),
+         axis.text.x = element_text(colour = "black"),
+         axis.text.y = element_blank(),
+         legend.position = "none",
+         legend.key = element_blank(),
+         legend.background = element_blank(),
+         plot.margin = unit(c(30, half_line, half_line, half_line), "points"))
+
+
+grid.arrange(plot3Metrics, plotCI, layout_matrix = cbind(c(1,1,1,2)))
+
+})
+
+
 # ------------------------------------------------------------------
 # Create distribution plot 
 ranges <- reactiveValues(x = NULL, y = NULL)
@@ -114,7 +211,6 @@ q <- ggplot(test.df, aes (x= value, y = distval, group = dist, colour = dist)) +
                                  paste0("Yes, df = ", round(degf2,2)) )) +
   scale_y_continuous("pdf(x)", expand = c(0,0)) +
   scale_x_continuous("t", expand = c(0,0)) +
-  ggtitle("t Distribution") +
   coord_cartesian(xlim = ranges$x, ylim = ranges$y) +
   theme( panel.background = element_blank(),
          panel.grid.major = element_blank(),
@@ -220,7 +316,6 @@ output$rawtable <- renderPrint({
 })
 
 
-
 # ------------------------------------------------------------------
 # Functions for creating models and printing summaries
 output$ttest2 <- renderPrint({
@@ -237,6 +332,47 @@ output$ttest2 <- renderPrint({
   print(t.test(value ~ Group, data = df.raw, conf.level = setCI, var.equal = TRUE))
   })
 
+# ------------------------------------------------------------------
+# Functions for creating tidy summaries
+resTable <- reactive({
+})
+
+output$broom <- renderTable({
+  setCI <- input$setCI
+  df.raw <- df()
+  names(df.raw) <-  c("value","Group")
+  resTable <- rbind(tidy(t.test(value ~ Group, data = df.raw, conf.level = setCI))[-1],  # Welch's
+                    tidy(t.test(value ~ Group, data = df.raw, conf.level = setCI, var.equal = TRUE)))
+  resTable <- #cbind(Metric = c("Assume equal variance?",
+                               # "Group 1 mean",
+                               # "Group 2 mean", 
+                               # "Test statistic", 
+                               # "p-value", 
+                               # "Degrees of Freedom", 
+                               # "Lower 95% CI", 
+                               # "Upper 95% CI"), 
+                    as.data.frame.matrix(
+                      rbind(c("No", "Yes"),
+                            round(t(resTable),3)
+                      )
+                    )
+  # )
+  
+  
+  # names(resTable)[c(2,3)] <- c("Welch's", "Regular")
+  names(resTable) <- c("Welch's", "Regular")
+  row.names(resTable) <- c("Assume equal variance?",
+                           "Group 1 mean",
+                           "Group 2 mean",
+                           "Test statistic",
+                           "p-value",
+                           "Degrees of Freedom",
+                           "Lower 95% CI",
+                           "Upper 95% CI")
+  return(resTable)
+})
+
+# ------------------------------------------------------------------
 # Download data set:
 output$downloadData <- downloadHandler(
   filename = function() { 'data.csv' },
