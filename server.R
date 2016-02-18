@@ -1,6 +1,213 @@
 # Two-sample t-test, v2016, r2 - server
 function(input, output) {
 
+############################
+################# one-sample
+############################
+  # Create Data set:
+  dfOneSam <- reactive({
+    samsize <- input$samsizeOneSam  
+    group1dist <- input$group1distOneSam
+    g1Mean <- input$g1MeanOneSam 
+    g1SD <- input$g1SDOneSam
+    testMean <- input$testMeanOneSam
+    x_range <- input$x_rangeOneSam
+    
+    if (group1dist=="runif") {
+      df <- data.frame(group1 = do.call(group1dist, list(n=samsize, min = min(x_range), max = max(x_range))))
+    }
+    else {
+      #    df <- data.frame(group1 = do.call(group1dist, list(n=samsize, mean = g1Mean, sd = g1SD)))
+      df <- do.call(group1dist, list(n=samsize, mean = g1Mean, sd = g1SD))
+      xbar1 <- mean(df)
+      sd1 <- sd(df)
+      z1 <- (df-xbar1)/sd1
+      #     df <- g1SD*z1+g1Mean
+      df <- data.frame(group1 = g1SD*z1+g1Mean)
+    }
+    
+    
+  })
+  
+  # ========================    
+  # Create plot 
+  
+  output$main_plotOneSam <- renderPlot({
+    
+    df.raw <- dfOneSam()
+    df <- as.data.frame(df.raw)
+    df$cat <- rep("group1",nrow(df.raw))
+    testMean <- input$testMeanOneSam
+    
+
+    ggplot(data = df, aes(x = 1, y = group1)) + 
+      geom_jitter(position = position_jitter(width = .05), alpha = 0.5, size = 3, col = DarkGreen) +
+      geom_hline(yintercept = testMean, col = "blue") +
+      annotate("text", x = 2, y = testMean, label = "Hypothesised mean", vjust = -0.2) +
+      scale_y_continuous("Values") +
+      scale_x_discrete("", labels = "", limits = c(0,3)) +
+      
+      stat_summary(fun.y = mean, geom = "point", col = "black") + 
+      stat_summary(fun.data = mean_cl_normal, geom = "errorbar", width = 0.04, col = "black", fun.args = list(conf.int = input$setCIOneSam)) +
+      theme(panel.background = element_blank(),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_line(colour = "black"),
+            axis.line.y = element_line(colour = "black"),
+            axis.line.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.text.y = element_text(colour = "black")
+      )
+
+  }) # end of render plot "main_plotOneSam"
+  
+  
+  output$dist_plotOneSam <- renderPlot({
+    
+    x <- seq(-5, 5, length=4000)
+    hx <- dnorm(x)
+
+    # Find the t-statistic for this data set:
+    testMean <- input$testMeanOneSam
+    df.raw <- dfOneSam()
+    #  do.call(t.test, args = list(x = df.raw, mu = testMean))
+    User <- dfOneSam()
+    setCI <- input$setCIOneSam
+    tline <- t.test(x = User, mu = testMean, conf.level = setCI)
+    degf <- tline$parameter
+    tline <- tline$statistic
+    
+    testing <- t.test(x = User$group1, mu = testMean, conf.level = setCI)
+    
+    #names(df.raw) <-  c("value","Group")
+
+    # Calculate t-dist curve:
+    test.df <- data.frame(value = x, tdist = dt(x, degf))
+    test.df <- melt(test.df, id.vars = "value")
+    names(test.df) <- c("value", "dist", "distval")
+    
+   p <- ggplot(test.df, aes (x= value, y = distval, group = dist)) +
+      geom_line(col = MidRed) +
+      
+      geom_vline(xintercept = tline, col = MidRed) +
+      
+      scale_y_continuous("pdf(x)", expand = c(0,0)) +
+      scale_x_continuous(paste0("t, df = ", round(degf, 2)), expand = c(0,0)) +
+      coord_cartesian(xlim = ranges$x, ylim = ranges$y) +
+      
+      theme( panel.background = element_blank(),
+             panel.grid.major = element_blank(),
+             panel.grid.minor = element_blank(),
+             axis.ticks.x = element_line(colour = "black"),
+             axis.ticks.y = element_line(colour = "black"),
+             axis.line = element_line(colour = "black"),
+             axis.line.y = element_blank(),
+             axis.text.x = element_text(colour = "black"),
+             axis.text.y = element_text(colour = "black"),
+             legend.position = c(0.8, 0.8),
+             legend.key = element_blank(),
+             legend.background = element_blank()
+             
+      )
+
+    
+    if(input$OneSamRadio == 1) {
+      p + geom_ribbon(data=subset(test.df, value > qt(setCI+((1-setCI)/2), df=degf) & dist == "tdist"),
+                  aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) +
+      geom_ribbon(data=subset(test.df, value < qt((1-setCI)/2, df=degf) & dist == "tdist"),
+                  aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA)
+    } else if (input$OneSamRadio == 2) {
+      
+      tline <- ifelse(tline < 0, -1*tline, tline)
+
+      p + geom_ribbon(data = subset(test.df, value > tline & dist == "tdist"),
+                      aes(x=value, ymax=distval), ymin=0, fill=MidRed, alpha=0.4, col = NA) +
+        geom_ribbon(data = subset(test.df, value < -1*tline & dist == "tdist"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA)
+    }
+    
+
+          }) # end of render plot "dist_plotOneSam"
+  
+  # When a double-click happens, check if there's a brush on the plot.
+  # If so, zoom to the brush bounds; if not, reset the zoom.
+  observeEvent(input$plot1_dblclickOneSam, {
+    brush <- input$plot1_brushOneSam
+    if (!is.null(brush)) {
+      ranges$x <- c(brush$xmin, brush$xmax)
+      ranges$y <- c(brush$ymin, brush$ymax)
+      
+    } else {
+      ranges$x <- NULL
+      ranges$y <- NULL
+    }
+  })
+  
+  
+  # Redefine UI options, dependent on distribution:
+  # Want two sliders for rnorm, but renderUI gives an error with the comma,
+  # So i just make two output$ with renderUI
+  
+  output$mainSlidersOneSam <- renderUI({
+    
+    if (input$group1distOneSam=="rnorm") {
+      sliderInput("g1MeanOneSam", "Mean:", 
+                  min = 0, max = 25, value = 2, step= 0.5)
+      
+    } else if (input$group1distOneSam=="runif") {
+      sliderInput(inputId = "x_rangeOneSam",
+                  label = paste("Data range"),
+                  min = 0, max = 25, value = c(10, 20))
+    }  
+  })  
+  
+  output$mainSliders2OneSam <- renderUI({
+    
+    if (input$group1distOneSam=="rnorm") {
+      
+      sliderInput("g1SDOneSam", "Standard Deviation", 
+                  min = 0, max = 10, value = 3, step= 0.5)
+    }  
+  })
+  
+  # ------------------------------------------------------------------
+  # Functions for creating tidy summaries One-Sample
+  
+  output$broomOneSam <- renderTable({
+    
+    User <- dfOneSam()
+    setCI <- input$setCIOneSam
+    testMean <- input$testMeanOneSam
+    
+    resTable <- tidy(t.test(x = User, mu = testMean, conf.level = setCI))[-1]
+    resTable <- as.data.frame.matrix(
+      round(t(resTable),3)
+    )
+
+    names(resTable) <- "Value"
+    row.names(resTable) <- c("Test statistic",
+                             "p-value",
+                             "Degrees of Freedom",
+                             "Lower 95% CI",
+                             "Upper 95% CI")
+    return(resTable)
+  })
+  
+  # ------------------------------------------------------------------
+  # Download data set:
+  output$downloadDataOneSam <- downloadHandler(
+    filename = function() { 'data.csv' },
+    content = function(file) {
+      write.csv(as.data.frame(dfOneSam()), file, row.names = FALSE)
+    }
+  )
+  
+  
+############################
+################# two-sample
+############################
+  
 df <- reactive({
   # Group 1 parameters
   samsize <- input$samsize  
@@ -47,7 +254,6 @@ output$main_plot <- renderPlot({
   
   samsize <- input$samsize  
   group2samsize <- input$group2samsize  
-  
   # df.raw <- as.data.frame(df())
 
   # df.raw$cat <- c(rep("group1",samsize), rep("group2",group2samsize))
@@ -169,7 +375,7 @@ plotCI <- ggplot(resTable.CI, aes(y = Metric, x = lower, xend = upper, col = var
          plot.margin = unit(c(30, half_line, half_line, half_line), "points"))
 
 
-grid.arrange(plot3Metrics, plotCI, layout_matrix = cbind(c(1,1,1,2)))
+grid.arrange(arrangeGrob(plot3Metrics), plotCI, layout_matrix = cbind(c(1,1,1,2)))
 
 })
 
@@ -180,7 +386,7 @@ ranges <- reactiveValues(x = NULL, y = NULL)
 
 output$dist_plot <- renderPlot({
 # req(input$onestt)
-x <- seq(-5, 5, length=6000)
+x <- seq(-5, 5, length=10000)
 df.raw <- df()
 
 setCI <- input$setCI
@@ -226,20 +432,53 @@ q <- ggplot(test.df, aes (x= value, y = distval, group = dist, colour = dist)) +
          
   )
 
-    q +
-      geom_ribbon(data=subset(test.df, value > qt(setCI+((1-setCI)/2), df=degf) & dist == "tdist"),
-                  aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) +
-      geom_ribbon(data=subset(test.df, value < qt((1-setCI)/2, df=degf) & dist == "tdist"),
-                  aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) + 
-      geom_vline(xintercept = tline, col = MidRed) +
-      
-      geom_ribbon(data=subset(test.df, value > qt(setCI+((1-setCI)/2), df=degf2) & dist == "tdist2"),
-                aes(x=value,ymax=distval),ymin=0,fill=MidBlue, alpha=0.4, col = NA) +
-      geom_ribbon(data=subset(test.df, value < qt((1-setCI)/2, df=degf2) & dist == "tdist2"),
-                aes(x=value,ymax=distval),ymin=0,fill=MidBlue, alpha=0.4, col = NA) + 
-      geom_vline(xintercept = tline2, col = MidBlue)
 
   
+    
+    
+    if(input$TwoSamRadio == 1) {
+      q +
+        geom_ribbon(data=subset(test.df, value > qt(setCI+((1-setCI)/2), df=degf) & dist == "tdist"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) +
+        geom_ribbon(data=subset(test.df, value < qt((1-setCI)/2, df=degf) & dist == "tdist"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) + 
+        geom_vline(xintercept = tline, col = MidRed) +
+        
+        geom_ribbon(data=subset(test.df, value > qt(setCI+((1-setCI)/2), df=degf2) & dist == "tdist2"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidBlue, alpha=0.4, col = NA) +
+        geom_ribbon(data=subset(test.df, value < qt((1-setCI)/2, df=degf2) & dist == "tdist2"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidBlue, alpha=0.4, col = NA) + 
+        geom_vline(xintercept = tline2, col = MidBlue)
+      
+    } else if (input$TwoSamRadio == 2) {
+      
+      q <- q + 
+        geom_vline(xintercept = tline, col = MidRed) +
+        geom_vline(xintercept = tline2, col = MidBlue)
+        
+      
+      tline <- ifelse(tline < 0, -1*tline, tline)
+      tline2 <- ifelse(tline2 < 0, -1*tline2, tline2)
+      
+        q +
+        geom_ribbon(data=subset(test.df, value > tline & dist == "tdist"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) +
+        geom_ribbon(data=subset(test.df, value < -1*tline & dist == "tdist"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidRed, alpha=0.4, col = NA) + 
+        
+        geom_ribbon(data=subset(test.df, value > tline2 & dist == "tdist2"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidBlue, alpha=0.4, col = NA) +
+        geom_ribbon(data=subset(test.df, value < -1*tline2 & dist == "tdist2"),
+                    aes(x=value,ymax=distval),ymin=0,fill=MidBlue, alpha=0.4, col = NA)
+      
+      
+    }
+    
+    
+    
+    
+    
+    
 
 }) # end of render plot "dist_plot"
 
@@ -333,16 +572,14 @@ output$ttest2 <- renderPrint({
   })
 
 # ------------------------------------------------------------------
-# Functions for creating tidy summaries
-resTable <- reactive({
-})
+# Functions for creating tidy summaries One-Sample
 
 output$broom <- renderTable({
   setCI <- input$setCI
   df.raw <- df()
   names(df.raw) <-  c("value","Group")
-  resTable <- rbind(tidy(t.test(value ~ Group, data = df.raw, conf.level = setCI))[-1],  # Welch's
-                    tidy(t.test(value ~ Group, data = df.raw, conf.level = setCI, var.equal = TRUE)))
+  resTable <- rbind(tidy(t.test(value ~ Group, data = df.raw, conf.level = setCI))[-c(1:3)],  # Welch's
+                    tidy(t.test(value ~ Group, data = df.raw, conf.level = setCI, var.equal = TRUE))[-c(1:2)])
   resTable <- #cbind(Metric = c("Assume equal variance?",
                                # "Group 1 mean",
                                # "Group 2 mean", 
@@ -362,8 +599,8 @@ output$broom <- renderTable({
   # names(resTable)[c(2,3)] <- c("Welch's", "Regular")
   names(resTable) <- c("Welch's", "Regular")
   row.names(resTable) <- c("Assume equal variance?",
-                           "Group 1 mean",
-                           "Group 2 mean",
+                           # "Group 1 mean",
+                           # "Group 2 mean",
                            "Test statistic",
                            "p-value",
                            "Degrees of Freedom",
